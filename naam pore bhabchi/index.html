@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en-US" dir="ltr">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Language" content="en-US" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Aperture · Climate Visibility Station</title>
+<meta name="description" content="Live visibility forecasting instrument for aviation, transport and outdoor safety." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* ---- console chrome (constant regardless of weather scene) ---- */
+    --panel: #23262d;
+    --panel-2: #2b2e37;
+    --panel-edge: #3a3e49;
+    --ink: #eee9df;
+    --ink-dim: #9aa0ab;
+    --brass: #c9a227;
+    --brass-soft: rgba(201,162,39,0.35);
+    --amber: #ffb648;
+    --danger: #ff6b5e;
+    --ok: #7fd99b;
+    --radius: 18px;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* ---- scene tokens, overwritten per data-scene ---- */
+    --sky-top: #0e3a63;
+    --sky-mid: #3a7bb5;
+    --sky-bottom: #a9d3e8;
+    --sun-glow: rgba(255, 210, 110, 0);
+    --scene-accent: #ffd166;
+    --particle-opacity: 0;
+  }
+
+  *{ box-sizing: border-box; }
+  html{ scroll-behavior: smooth; }
+  body{
+    margin:0;
+    min-height:100vh;
+    background: #14161a;
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow-x:hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection{ background: var(--brass-soft); }
+  :focus-visible{ outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 6px; }
+
+  a{ color: inherit; }
+
+  /* ===================== TOP BAR ===================== */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 22px clamp(18px, 4vw, 56px) 10px;
+    max-width: 1180px; margin: 0 auto;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:34px; height:34px; border-radius:50%;
+    border:2px solid var(--brass);
+    display:grid; place-items:center;
+    position:relative;
+  }
+  .brand-mark::after{
+    content:""; width:4px; height:4px; border-radius:50%;
+    background: var(--brass); position:absolute;
+  }
+  .brand-mark::before{
+    content:""; position:absolute; width:1px; height:12px; background:var(--brass);
+    transform-origin: bottom center; transform: rotate(35deg) translateY(-4px);
+  }
+  .brand-name{ font-family: var(--font-display); font-weight:600; font-size:15px; letter-spacing:0.02em; }
+  .brand-sub{ font-size:11px; color:var(--ink-dim); font-family: var(--font-mono); letter-spacing:0.06em; }
+  .station-id{
+    font-family: var(--font-mono); font-size:11px; color: var(--ink-dim);
+    border:1px solid var(--panel-edge); padding:6px 12px; border-radius:100px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .pulse-dot{ width:6px; height:6px; border-radius:50%; background:var(--ok); box-shadow:0 0 8px var(--ok); animation: pulse 2s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  /* ===================== HERO / VIEWPORT ===================== */
+  .hero{
+    max-width: 1180px; margin: 8px auto 0; padding: 0 clamp(18px, 4vw, 56px);
+  }
+  .eyebrow{
+    font-family: var(--font-mono); font-size:12px; letter-spacing:0.12em;
+    color: var(--brass); text-transform:uppercase; margin: 0 0 10px;
+  }
+  h1{
+    font-family: var(--font-display); font-weight:700;
+    font-size: clamp(28px, 4.6vw, 46px); line-height:1.05; margin: 0 0 12px;
+    max-width: 16ch;
+  }
+  .hero-copy{ color: var(--ink-dim); font-size:15px; max-width:56ch; line-height:1.6; margin:0 0 26px;}
+
+  .viewport{
+    position: relative;
+    border-radius: 24px;
+    overflow:hidden;
+    height: min(66vh, 560px);
+    min-height: 380px;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,0.6), inset 0 0 0 8px rgba(20,22,26,0.4);
+    background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 55%, var(--sky-bottom) 100%);
+    transition: background 1.4s ease;
+  }
+  .viewport canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .sun-glow{
+    position:absolute; inset:0;
+    background: radial-gradient(circle at 78% 22%, var(--sun-glow) 0%, transparent 55%);
+    transition: background 1.4s ease;
+    pointer-events:none;
+  }
+  .lightning-flash{
+    position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none;
+  }
+  .vignette{
+    position:absolute; inset:0; pointer-events:none;
+    background: linear-gradient(180deg, rgba(0,0,0,0.15), transparent 30%, transparent 70%, rgba(0,0,0,0.35));
+  }
+
+  /* Scene chip, top-left of viewport */
+  .scene-chip{
+    position:absolute; top:18px; left:18px; z-index:5;
+    display:flex; align-items:center; gap:8px;
+    background: rgba(15,16,20,0.45); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.14);
+    padding: 8px 14px 8px 10px; border-radius: 100px;
+    font-family: var(--font-mono); font-size: 12px; letter-spacing:0.04em;
+  }
+  .scene-chip .ico{ font-size:16px; line-height:1; }
+
+  /* ---- Instrument gauge (signature element) ---- */
+  .gauge-dock{
+    position:absolute; right: clamp(10px,3vw,32px); bottom: clamp(10px,3vw,28px);
+    z-index: 5;
+    width: clamp(150px, 22vw, 210px);
+  }
+  .gauge-frame{
+    position:relative; border-radius:50%;
+    background: radial-gradient(circle at 32% 28%, #3a3e49, #1a1c21 72%);
+    border: 6px solid var(--panel-edge);
+    box-shadow: 0 18px 40px rgba(0,0,0,0.5), inset 0 0 18px rgba(0,0,0,0.6);
+    aspect-ratio: 1/1;
+  }
+  .gauge-frame svg{ width:100%; height:100%; display:block; }
+  .gauge-readout{
+    position:absolute; left:50%; top:60%; transform:translate(-50%,-50%);
+    text-align:center; pointer-events:none;
+  }
+  .gauge-readout .num{
+    font-family: var(--font-mono); font-weight:700; color: var(--amber);
+    font-size: clamp(20px, 3.4vw, 30px); text-shadow: 0 0 12px rgba(255,182,72,0.55);
+    letter-spacing: -0.02em;
+  }
+  .gauge-readout .unit{ font-family: var(--font-mono); font-size:10px; color: var(--ink-dim); letter-spacing:0.1em; }
+
+  /* ===================== CONSOLE ===================== */
+  .console{
+    max-width: 1180px; margin: 34px auto 80px; padding: 0 clamp(18px, 4vw, 56px);
+  }
+  .console-panel{
+    background: linear-gradient(160deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--panel-edge);
+    border-radius: var(--radius);
+    padding: clamp(20px, 3vw, 36px);
+    box-shadow: 0 24px 60px -24px rgba(0,0,0,0.55);
+    position:relative;
+  }
+  .console-panel::before{
+    content:""; position:absolute; inset:0; border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), transparent 18%);
+    pointer-events:none;
+  }
+  .console-head{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    margin-bottom: 22px; flex-wrap:wrap;
+  }
+  .console-head h2{
+    font-family: var(--font-display); font-size: 19px; margin:0; font-weight:600;
+  }
+  .console-head .hint{ font-size:12.5px; color:var(--ink-dim); font-family: var(--font-mono); }
+
+  .grid{
+    display:grid; grid-template-columns: repeat(4, 1fr); gap: 16px 18px;
+  }
+  @media (max-width: 860px){ .grid{ grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px){ .grid{ grid-template-columns: 1fr; } }
+
+  .field{ display:flex; flex-direction:column; gap:8px; }
+  .field label{
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing:0.07em;
+    text-transform: uppercase; color: var(--ink-dim); display:flex; justify-content:space-between;
+  }
+  .field label .val{ color: var(--amber); }
+  .field input[type="range"]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px;
+    border-radius:4px; background: var(--panel-edge); outline:none; cursor:pointer;
+    margin: 6px 0 2px;
+  }
+  .field input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background: var(--brass); border: 3px solid #1a1c21;
+    box-shadow: 0 0 0 2px var(--brass-soft);
+    cursor:pointer; transition: transform .15s ease;
+  }
+  .field input[type="range"]:active::-webkit-slider-thumb{ transform: scale(1.15); }
+  .field input[type="range"]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background: var(--brass); border: 3px solid #1a1c21; cursor:pointer;
+  }
+  .field .subunit{ font-size:11px; color:var(--ink-dim); }
+
+  .date-row{
+    margin-top:18px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;
+    font-family: var(--font-mono); font-size:12px; color: var(--ink-dim);
+  }
+  .date-row input[type="datetime-local"]{
+    background: #1a1c21; border:1px solid var(--panel-edge); color:var(--ink);
+    padding:8px 10px; border-radius:8px; font-family: var(--font-mono); font-size:12px;
+  }
+
+  .actions{
+    display:flex; align-items:center; gap:16px; margin-top: 26px; flex-wrap:wrap;
+  }
+  .btn-predict{
+    position:relative; overflow:hidden;
+    background: linear-gradient(160deg, var(--brass), #a8811c);
+    color:#1a1406; border:none; font-family: var(--font-display); font-weight:700;
+    font-size: 15px; letter-spacing:0.01em;
+    padding: 14px 28px; border-radius: 100px; cursor:pointer;
+    box-shadow: 0 12px 30px -10px rgba(201,162,39,0.6);
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .btn-predict:hover{ transform: translateY(-2px); box-shadow: 0 16px 36px -8px rgba(201,162,39,0.75); }
+  .btn-predict:active{ transform: translateY(0px) scale(0.98); }
+  .btn-predict .ripple{
+    position:absolute; border-radius:50%; background: rgba(255,255,255,0.55);
+    transform: scale(0); animation: rip .6s ease-out forwards; pointer-events:none;
+  }
+  @keyframes rip{ to{ transform: scale(3.2); opacity:0; } }
+  .btn-predict[disabled]{ opacity:0.6; cursor:progress; }
+
+  .status-line{ font-family: var(--font-mono); font-size:12px; color:var(--ink-dim); min-height:16px; }
+  .status-line.err{ color: var(--danger); }
+
+  /* ===================== RESULT STRIP ===================== */
+  .result{
+    margin-top: 26px; padding-top: 22px; border-top:1px dashed var(--panel-edge);
+    display:grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items:center;
+    opacity:0; max-height:0; overflow:hidden; transition: opacity .5s ease, max-height .5s ease, margin .5s ease, padding .5s ease;
+  }
+  .result.show{ opacity:1; max-height:220px; }
+  @media (max-width: 700px){ .result{ grid-template-columns: 1fr; text-align:center; } }
+  .result-badge{
+    width:56px; height:56px; border-radius:50%; display:grid; place-items:center;
+    font-size:26px; background: rgba(255,255,255,0.06); border:1px solid var(--panel-edge);
+  }
+  .result-copy .label{ font-family: var(--font-mono); font-size:11px; letter-spacing:0.08em; color:var(--ink-dim); text-transform:uppercase; }
+  .result-copy .title{ font-family: var(--font-display); font-size:20px; font-weight:600; margin:2px 0; }
+  .result-copy .note{ font-size:12.5px; color:var(--ink-dim); }
+  .result-metric{ text-align:right; }
+  @media (max-width: 700px){ .result-metric{ text-align:center; } }
+  .result-metric .km{ font-family: var(--font-mono); font-weight:700; font-size:30px; color:var(--amber); }
+  .result-metric .mi{ font-family: var(--font-mono); font-size:12px; color:var(--ink-dim); }
+
+  .severity-tag{
+    display:inline-block; margin-top:6px; font-family: var(--font-mono); font-size:10.5px;
+    padding: 3px 10px; border-radius:100px; letter-spacing:0.06em; text-transform:uppercase;
+  }
+  .sev-clear{ background: rgba(127,217,155,0.15); color: var(--ok); }
+  .sev-mild{ background: rgba(255,182,72,0.15); color: var(--amber); }
+  .sev-moderate{ background: rgba(255,159,28,0.18); color:#ff9f1c; }
+  .sev-severe{ background: rgba(255,107,94,0.18); color: var(--danger); }
+
+  /* ===================== FOOTER NOTE ===================== */
+  .footnote{
+    max-width:1180px; margin: 0 auto 50px; padding: 0 clamp(18px,4vw,56px);
+    font-size:12px; color: var(--ink-dim); font-family: var(--font-mono);
+    display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration: 0.001ms !important; animation-iteration-count:1 !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+</head>
+<body data-scene="cloudy">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="brand-name">Aperture</div>
+        <div class="brand-sub">CLIMATE VISIBILITY STATION</div>
+      </div>
+    </div>
+    <div class="station-id"><span class="pulse-dot"></span> STATION 04 · LIVE MODEL</div>
+  </div>
+
+  <div class="hero">
+    <p class="eyebrow">Instrument reading · sector forecast</p>
+    <h1>See how far the sky will let you see.</h1>
+    <p class="hero-copy">Enter today's readings and the station computes the maximum visibility distance — the same instrument logic used for flight, road and marine safety calls.</p>
+
+    <div class="viewport" id="viewport">
+      <canvas id="scene-canvas"></canvas>
+      <div class="sun-glow" id="sunGlow"></div>
+      <div class="vignette"></div>
+      <div class="lightning-flash" id="lightningFlash"></div>
+
+      <div class="scene-chip" id="sceneChip">
+        <span class="ico" id="sceneIcon">☁️</span>
+        <span id="sceneLabel">Partly Cloudy</span>
+      </div>
+
+      <div class="gauge-dock">
+        <div class="gauge-frame">
+          <svg viewBox="0 0 200 200">
+            <defs>
+              <path id="tickArc" d="M 30 155 A 90 90 0 1 1 170 155" fill="none"/>
+            </defs>
+            <!-- tick marks -->
+            <g id="ticks" stroke="#565c68" stroke-width="2"></g>
+            <!-- arc track -->
+            <path d="M 30 155 A 90 90 0 1 1 170 155" fill="none" stroke="#3a3e49" stroke-width="6" stroke-linecap="round"/>
+            <path id="arcFill" d="M 30 155 A 90 90 0 1 1 170 155" fill="none" stroke="#c9a227" stroke-width="6" stroke-linecap="round" stroke-dasharray="360" stroke-dashoffset="360"/>
+            <!-- needle -->
+            <g id="needle" transform="rotate(-45 100 100)" style="transition: transform 1s cubic-bezier(.34,1.56,.64,1);">
+              <line x1="100" y1="100" x2="100" y2="30" stroke="#ffb648" stroke-width="3" stroke-linecap="round"/>
+              <circle cx="100" cy="100" r="7" fill="#ffb648"/>
+              <circle cx="100" cy="100" r="3" fill="#1a1c21"/>
+            </g>
+          </svg>
+          <div class="gauge-readout">
+            <div class="num" id="gaugeNum">–</div>
+            <div class="unit">KM VISIBILITY</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="console">
+    <div class="console-panel">
+      <div class="console-head">
+        <h2>Station reading console</h2>
+        <span class="hint">drag or type exact values</span>
+      </div>
+
+      <div class="grid" id="fieldsGrid">
+        <!-- fields injected by JS -->
+      </div>
+
+      <div class="date-row">
+        <label for="dateInput" style="display:flex;flex-direction:column;gap:6px;">
+          OBSERVATION TIME
+        </label>
+        <input type="datetime-local" id="dateInput" />
+      </div>
+
+      <div class="actions">
+        <button class="btn-predict" id="predictBtn">Take reading →</button>
+        <span class="status-line" id="statusLine"></span>
+      </div>
+
+      <div class="result" id="resultBlock">
+        <div class="result-badge" id="resultBadge">☁️</div>
+        <div class="result-copy">
+          <div class="label">Forecast output</div>
+          <div class="title" id="resultTitle">—</div>
+          <div class="note" id="resultNote">—</div>
+          <span class="severity-tag" id="resultSeverity">—</span>
+        </div>
+        <div class="result-metric">
+          <div class="km" id="resultKm">– km</div>
+          <div class="mi" id="resultMi">– mi</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    <span>Model: XGBoost regression · trained on historical station data</span>
+    <span id="apiStatus">checking backend…</span>
+  </div>
+
+<script>
+/* ============================================================
+   CONFIG
+   ============================================================ */
+// Point this at your deployed backend. Falls back to a lightweight
+// client-side heuristic if the API is unreachable, so the UI is
+// always demonstrable.
+const API_BASE = window.API_BASE || "http://127.0.0.1:8000";
+
+/* ============================================================
+   FIELD DEFINITIONS (mirrors backend WeatherInput schema)
+   ============================================================ */
+const FIELDS = [
+  { id:"dry_bulb_temp_f", label:"Air Temp", unit:"°F", min:-20, max:115, step:1, value:60 },
+  { id:"wet_bulb_temp_f", label:"Wet Bulb Temp", unit:"°F", min:-20, max:110, step:1, value:55 },
+  { id:"dew_point_temp_f", label:"Dew Point", unit:"°F", min:-30, max:90, step:1, value:48 },
+  { id:"relative_humidity", label:"Humidity", unit:"%", min:0, max:100, step:1, value:65 },
+  { id:"wind_speed", label:"Wind Speed", unit:"mph", min:0, max:60, step:1, value:8 },
+  { id:"wind_direction", label:"Wind Direction", unit:"°", min:0, max:360, step:5, value:200 },
+  { id:"station_pressure", label:"Station Pressure", unit:"inHg", min:27.5, max:31.0, step:0.01, value:29.92 },
+  { id:"sea_level_pressure", label:"Sea Level Pressure", unit:"inHg", min:27.5, max:31.0, step:0.01, value:29.98 },
+  { id:"precip", label:"Precipitation", unit:"in", min:0, max:2.5, step:0.01, value:0.0 },
+];
+
+const grid = document.getElementById("fieldsGrid");
+FIELDS.forEach(f=>{
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.innerHTML = `
+    <label for="${f.id}">${f.label} <span class="val" id="${f.id}_val">${f.value}${f.unit}</span></label>
+    <input type="range" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${f.value}" />
+  `;
+  grid.appendChild(wrap);
+  const input = wrap.querySelector("input");
+  const valLabel = wrap.querySelector(`#${f.id}_val`);
+  input.addEventListener("input", ()=>{
+    valLabel.textContent = `${input.value}${f.unit}`;
+    liveScenePreview();
+  });
+});
+
+// default observation time = now, local
+const dateInput = document.getElementById("dateInput");
+function pad(n){ return n.toString().padStart(2,"0"); }
+function nowLocalISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+dateInput.value = nowLocalISO();
+
+function getFormValues(){
+  const v = {};
+  FIELDS.forEach(f=>{ v[f.id] = parseFloat(document.getElementById(f.id).value); });
+  v.date = dateInput.value ? new Date(dateInput.value).toISOString() : null;
+  return v;
+}
+
+/* ============================================================
+   SCENE ENGINE — canvas particle systems + palette per condition
+   ============================================================ */
+const SCENES = {
+  "sunny":        { icon:"☀️", top:"#1a6fb8", mid:"#4fa8de", bottom:"#bfe3f2", sun:"rgba(255,210,110,0.55)", accent:"#ffd166" },
+  "clear-night":  { icon:"🌙", top:"#060b1a", mid:"#111a33", bottom:"#1c2947", sun:"rgba(120,150,255,0.12)", accent:"#c9d6ff" },
+  "cloudy":       { icon:"⛅", top:"#4a5b6d", mid:"#7c8a9b", bottom:"#c3ccd4", sun:"rgba(255,255,255,0.08)", accent:"#cbd5e1" },
+  "cloudy-night": { icon:"☁️", top:"#0d1016", mid:"#181c24", bottom:"#262b36", sun:"rgba(120,130,160,0.06)", accent:"#8d99ae" },
+  "rain":         { icon:"🌧️", top:"#1c2a3a", mid:"#29394d", bottom:"#4a6178", sun:"rgba(120,160,210,0.08)", accent:"#8fb8dd" },
+  "fog":          { icon:"🌫️", top:"#8b939a", mid:"#b6bcc0", bottom:"#dde1e3", sun:"rgba(255,255,255,0.1)", accent:"#e5e8ea" },
+  "snow":         { icon:"🌨️", top:"#2c3e50", mid:"#48607a", bottom:"#c7dbe8", sun:"rgba(220,235,255,0.15)", accent:"#dcecf5" },
+  "storm":        { icon:"⛈️", top:"#0c0e18", mid:"#1c1830", bottom:"#332a52", sun:"rgba(180,140,255,0.06)", accent:"#a78bfa" },
+};
+
+const root = document.documentElement;
+const body = document.body;
+const canvas = document.getElementById("scene-canvas");
+const ctx = canvas.getContext("2d");
+const sunGlow = document.getElementById("sunGlow");
+const lightningFlash = document.getElementById("lightningFlash");
+const sceneIcon = document.getElementById("sceneIcon");
+const sceneLabel = document.getElementById("sceneLabel");
+
+let W, H, DPR;
+function resize(){
+  const rect = canvas.parentElement.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = rect.width; H = rect.height;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W+"px"; canvas.style.height = H+"px";
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+let currentScene = "cloudy";
+let particles = { drops:[], flakes:[], clouds:[], stars:[] };
+
+function seedClouds(n){
+  particles.clouds = Array.from({length:n}, ()=>({
+    x: Math.random()*1.4 - 0.2, y: Math.random()*0.5 + 0.05,
+    scale: 0.5 + Math.random()*1.1, speed: 0.0025 + Math.random()*0.004,
+    opacity: 0.25 + Math.random()*0.35,
+  }));
+}
+function seedStars(n){
+  particles.stars = Array.from({length:n}, ()=>({
+    x: Math.random(), y: Math.random()*0.65, r: Math.random()*1.4+0.3,
+    twinkle: Math.random()*Math.PI*2,
+  }));
+}
+function seedDrops(n){
+  particles.drops = Array.from({length:n}, ()=>({
+    x: Math.random()*W, y: Math.random()*H, len: 10+Math.random()*14,
+    speed: 6+Math.random()*7, drift: 1.2,
+  }));
+}
+function seedFlakes(n){
+  particles.flakes = Array.from({length:n}, ()=>({
+    x: Math.random()*W, y: Math.random()*H, r: 1+Math.random()*2.6,
+    speed: 0.6+Math.random()*1.2, drift: Math.random()*2-1, sway: Math.random()*Math.PI*2,
+  }));
+}
+seedClouds(6); seedStars(70); seedDrops(140); seedFlakes(90);
+
+function drawCloud(x,y,scale,opacity){
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.translate(x,y); ctx.scale(scale,scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.ellipse(0,0,42,22,0,0,Math.PI*2);
+  ctx.ellipse(30,-10,30,20,0,0,Math.PI*2);
+  ctx.ellipse(-30,-6,26,18,0,0,Math.PI*2);
+  ctx.ellipse(10,10,44,18,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+let lastLightning = 0;
+let time = 0;
+
+function tick(){
+  time += 1;
+  ctx.clearRect(0,0,W,H);
+
+  const showStars = currentScene.includes("night");
+  const showClouds = ["cloudy","cloudy-night","rain","storm","snow"].includes(currentScene);
+  const showRain = currentScene === "rain" || currentScene === "storm";
+  const showSnow = currentScene === "snow";
+  const showFogBand = currentScene === "fog";
+  const showStorm = currentScene === "storm";
+
+  if(showStars){
+    particles.stars.forEach(s=>{
+      s.twinkle += 0.02;
+      const a = 0.5 + Math.sin(s.twinkle)*0.5;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(s.x*W, s.y*H, s.r, 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // sun/moon disc for clear scenes
+  if(currentScene === "sunny" || currentScene === "clear-night"){
+    const cx = W*0.78, cy = H*0.24, r = currentScene==="sunny" ? 34 : 26;
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = currentScene==="sunny" ? "#ffe08a" : "#eef1ff";
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  if(showClouds){
+    particles.clouds.forEach(c=>{
+      c.x += c.speed * (showStorm?2.2:1);
+      if(c.x > 1.3) c.x = -0.3;
+      drawCloud(c.x*W, c.y*H, c.scale, c.opacity);
+    });
+  }
+
+  if(showRain){
+    ctx.strokeStyle = "rgba(200,225,255,0.55)";
+    ctx.lineWidth = 1.4;
+    particles.drops.forEach(d=>{
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - d.drift*3, d.y + d.len);
+      ctx.stroke();
+      d.y += d.speed; d.x -= d.drift;
+      if(d.y > H){ d.y = -20; d.x = Math.random()*W; }
+      if(d.x < -20) d.x = W+20;
+    });
+  }
+
+  if(showSnow){
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    particles.flakes.forEach(f=>{
+      f.sway += 0.02;
+      ctx.beginPath();
+      ctx.arc(f.x + Math.sin(f.sway)*8, f.y, f.r, 0, Math.PI*2);
+      ctx.fill();
+      f.y += f.speed;
+      if(f.y > H){ f.y = -10; f.x = Math.random()*W; }
+    });
+  }
+
+  if(showFogBand){
+    for(let i=0;i<3;i++){
+      const yy = H*(0.3 + i*0.22) + Math.sin(time*0.005 + i)*10;
+      const grad = ctx.createLinearGradient(0,yy-40,0,yy+40);
+      grad.addColorStop(0,"rgba(255,255,255,0)");
+      grad.addColorStop(0.5,"rgba(255,255,255,0.35)");
+      grad.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0,yy-40,W,80);
+    }
+  }
+
+  if(showStorm && time - lastLightning > 130 && Math.random() < 0.02){
+    lastLightning = time;
+    lightningFlash.style.transition = "none";
+    lightningFlash.style.opacity = "0.85";
+    requestAnimationFrame(()=>{
+      lightningFlash.style.transition = "opacity 0.6s ease";
+      lightningFlash.style.opacity = "0";
+    });
+  }
+
+  requestAnimationFrame(tick);
+}
+tick();
+
+function setScene(sceneKey){
+  const s = SCENES[sceneKey] || SCENES["cloudy"];
+  currentScene = sceneKey;
+  body.style.setProperty("--sky-top", s.top);
+  body.style.setProperty("--sky-mid", s.mid);
+  body.style.setProperty("--sky-bottom", s.bottom);
+  body.style.setProperty("--sun-glow", s.sun);
+  body.style.setProperty("--scene-accent", s.accent);
+  sceneIcon.textContent = s.icon;
+}
+
+/* live preview of scene while dragging sliders, using the same
+   rule-of-thumb classification as the backend (kept simple client-side) */
+function liveScenePreview(){
+  const v = getFormValues();
+  const spread = Math.abs(v.dry_bulb_temp_f - v.dew_point_temp_f);
+  const hour = new Date(v.date || Date.now()).getHours();
+  const night = hour < 6 || hour >= 19;
+  let scene = "cloudy";
+  if(v.precip >= 0.1 && v.dry_bulb_temp_f <= 34) scene = "snow";
+  else if(v.precip >= 0.1 && v.wind_speed >= 20) scene = "storm";
+  else if(v.precip >= 0.1) scene = "rain";
+  else if(v.precip > 0 && v.dry_bulb_temp_f <= 34) scene = "snow";
+  else if(v.precip > 0) scene = "rain";
+  else if(v.relative_humidity >= 92 && spread <= 3) scene = "fog";
+  else if(v.relative_humidity >= 80) scene = "cloudy";
+  else if(v.relative_humidity >= 65) scene = "cloudy";
+  else scene = "sunny";
+  if(night && (scene === "sunny" || scene === "cloudy")) scene = scene === "sunny" ? "clear-night" : "cloudy-night";
+  setScene(scene);
+}
+liveScenePreview();
+
+/* ============================================================
+   GAUGE — sweeping instrument needle, 0–15km mapped to -45°..225°
+   ============================================================ */
+const needle = document.getElementById("needle");
+const arcFill = document.getElementById("arcFill");
+const gaugeNum = document.getElementById("gaugeNum");
+const ticksGroup = document.getElementById("ticks");
+
+// build tick marks around the arc
+(function buildTicks(){
+  const cx=100, cy=100, rOuter=90, rInner=80;
+  const startDeg = -135, endDeg = 135;
+  for(let i=0;i<=15;i++){
+    const deg = startDeg + (endDeg-startDeg)*(i/15);
+    const rad = deg*Math.PI/180;
+    const x1 = cx + rOuter*Math.cos(rad), y1 = cy + rOuter*Math.sin(rad);
+    const x2 = cx + rInner*Math.cos(rad), y2 = cy + rInner*Math.sin(rad);
+    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1",x1); line.setAttribute("y1",y1);
+    line.setAttribute("x2",x2); line.setAttribute("y2",y2);
+    ticksGroup.appendChild(line);
+  }
+})();
+
+const GAUGE_ARC_LENGTH = arcFill.getTotalLength();
+arcFill.style.strokeDasharray = GAUGE_ARC_LENGTH;
+
+function setGauge(km){
+  const clamped = Math.max(0, Math.min(15, km));
+  const frac = clamped/15;
+  needle.setAttribute("transform", `rotate(${-135 + 270*frac} 100 100)`);
+  arcFill.style.strokeDashoffset = GAUGE_ARC_LENGTH * (1-frac);
+  gaugeNum.textContent = clamped.toFixed(2);
+}
+setGauge(0);
+
+/* ============================================================
+   PREDICTION CALL
+   ============================================================ */
+const predictBtn = document.getElementById("predictBtn");
+const statusLine = document.getElementById("statusLine");
+const resultBlock = document.getElementById("resultBlock");
+const resultBadge = document.getElementById("resultBadge");
+const resultTitle = document.getElementById("resultTitle");
+const resultNote = document.getElementById("resultNote");
+const resultSeverity = document.getElementById("resultSeverity");
+const resultKm = document.getElementById("resultKm");
+const resultMi = document.getElementById("resultMi");
+const apiStatusEl = document.getElementById("apiStatus");
+
+async function checkHealth(){
+  try{
+    const r = await fetch(`${API_BASE}/api/health`, { method:"GET" });
+    if(r.ok){ apiStatusEl.textContent = "backend connected"; return; }
+    throw new Error();
+  }catch(e){
+    apiStatusEl.textContent = "backend offline — using local estimate";
+  }
+}
+checkHealth();
+
+// lightweight client-side fallback estimate (rough, for offline demo only)
+function offlineEstimate(v){
+  let base = 10;
+  base -= (v.relative_humidity/100) * 6;
+  base -= v.precip * 12;
+  const spread = Math.abs(v.dry_bulb_temp_f - v.dew_point_temp_f);
+  if(spread < 3) base -= 3;
+  base += (v.sea_level_pressure - 29.92) * 4;
+  return Math.max(0, Math.min(14, base));
+}
+
+predictBtn.addEventListener("click", async (e)=>{
+  // ripple
+  const rect = predictBtn.getBoundingClientRect();
+  const ripple = document.createElement("span");
+  ripple.className = "ripple";
+  const size = Math.max(rect.width, rect.height);
+  ripple.style.width = ripple.style.height = size+"px";
+  ripple.style.left = (e.clientX-rect.left-size/2)+"px";
+  ripple.style.top = (e.clientY-rect.top-size/2)+"px";
+  predictBtn.appendChild(ripple);
+  setTimeout(()=>ripple.remove(), 650);
+
+  predictBtn.disabled = true;
+  statusLine.textContent = "Taking reading…";
+  statusLine.classList.remove("err");
+
+  const values = getFormValues();
+
+  try{
+    const res = await fetch(`${API_BASE}/api/predict`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(values),
+    });
+    if(!res.ok) throw new Error(`API responded ${res.status}`);
+    const data = await res.json();
+    renderResult(data);
+    statusLine.textContent = "Reading complete.";
+  }catch(err){
+    const km = offlineEstimate(values);
+    const scene = currentScene;
+    renderResult({
+      visibility_km: Math.round(km*100)/100,
+      visibility_miles: Math.round(km*0.621371*100)/100,
+      scene, scene_label: SCENES[scene] ? sceneLabel.textContent : "Estimated",
+      severity: km < 1 ? "severe" : km < 4 ? "moderate" : km < 7 ? "mild" : "clear",
+      confidence_note: "Offline local estimate (backend unreachable)",
+    });
+    statusLine.textContent = "Backend unreachable — showing local estimate.";
+    statusLine.classList.add("err");
+  }finally{
+    predictBtn.disabled = false;
+  }
+});
+
+function renderResult(data){
+  setScene(data.scene);
+  setGauge(data.visibility_km);
+  resultBlock.classList.add("show");
+  resultBadge.textContent = SCENES[data.scene] ? SCENES[data.scene].icon : "🌤️";
+  resultTitle.textContent = data.scene_label;
+  resultNote.textContent = data.confidence_note || "";
+  resultKm.textContent = `${data.visibility_km} km`;
+  resultMi.textContent = `${data.visibility_miles} mi`;
+  resultSeverity.textContent = data.severity;
+  resultSeverity.className = "severity-tag sev-" + data.severity;
+}
+</script>
+</body>
+</html>
